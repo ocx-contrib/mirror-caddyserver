@@ -6,7 +6,7 @@ name: caddy
 
 on:
   schedule:
-    - cron: '1 */6 * * *'
+    - cron: '21 1-23/6 * * *'
   workflow_dispatch:
   push:
     branches: [main]
