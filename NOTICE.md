@@ -44,8 +44,9 @@ in upstream's `go.mod`/`go.sum` and in the per-asset SBOM upstream publishes
 beside each release archive. Caddy's own `LICENSE` covers the combined work as
 distributed by upstream.
 
-"Caddy" and the Caddy logo are trademarks of Stack Holdings GmbH, used here for
-catalog identification under nominative fair use. `caddy/logo.png` is
+Upstream states that "Caddy is a project of ZeroSSL, an HID Global company" and
+that "Caddy is a registered trademark of Stack Holdings GmbH". The name and the
+Caddy logo are used here for catalog identification under nominative fair use. `caddy/logo.png` is
 upstream's own 512px square mark, taken byte-for-byte from
 `src/resources/images/icon-transparent.png` in
 <https://github.com/caddyserver/website>; `caddy/logo.svg` wraps that same PNG
