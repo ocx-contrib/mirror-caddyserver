@@ -1,0 +1,206 @@
+extends: ../mirror-base.yml
+
+name: caddy
+
+# Logical index package `caddyserver/caddy` at the physical path
+# `ghcr.io/ocx-contrib/caddyserver/caddy` — slash segments, never
+# hyphen-flattened. The first segment must be this repo's own GitHub owner:
+# GITHUB_TOKEN only authorises packages owned by the repo the workflow runs in.
+#
+# Namespace rule 2 (the org IS the project's own brand): upstream is the GitHub
+# org `caddyserver`, whose product is Caddy, and the tool publishes itself as
+# `caddy`. Provenance is recorded in the index claim's `upstream:` block, not in
+# the namespace.
+target:
+  registry: ghcr.io
+  repository: ocx-contrib/caddyserver/caddy
+
+source:
+  type: github_release
+  owner: caddyserver
+  repo: caddy
+  # Bare `vX.Y.Z` only. Upstream also tags `vX.Y.Z-beta.N` / `-rc.N`
+  # prereleases (v2.11.0 never shipped a stable — only two betas), which this
+  # anchored pattern excludes on top of `skip_prereleases: true`.
+  tag_pattern: "^v(?P<version>\\d+\\.\\d+\\.\\d+)$"
+
+# ─── libc gate (Phase 3.5) — the evidence, not the conclusion ───────────────
+#
+# MEASURED on the v2.11.4 Linux assets AND on the oldest in-range v2.9.0, not
+# inferred from "it's Go":
+#
+#   $ file caddy      # caddy_2.11.4_linux_amd64.tar.gz
+#   ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked,
+#     Go BuildID=…, stripped
+#   $ file caddy      # caddy_2.11.4_linux_arm64.tar.gz
+#   ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically
+#     linked, Go BuildID=…, stripped
+#   $ file caddy      # caddy_2.9.0_linux_amd64.tar.gz  → statically linked too
+#   $ readelf -l caddy | grep -c INTERP     →  0   (all three)
+#
+# Not UPX-packed, so `file`'s "statically linked" is trustworthy here rather
+# than a packer stub's lie: `strings -a caddy | grep -c '^UPX'` → 0, and
+# `readelf -h` reports "Start of section headers: 400" with 16 section headers
+# present. (A UPX stub leaves no PT_INTERP *and* no section headers, which is
+# how it makes every asset look static.) `caddy build-info` confirms the cause
+# upstream side: `build CGO_ENABLED=0`.
+#
+# No PT_INTERP ⇒ the artifact REQUIRES no libc at all ⇒ **bare** platform keys.
+# Tagging a static binary `+libc.musl` (or `+libc.glibc`) would be a false
+# requirement that hides it from hosts it runs on perfectly well.
+#
+# Cross-checked by RUNNING the artifact, which is the decisive test — the same
+# three stock images the container legs below use:
+#   ubuntu:24.04  →  `caddy version` printed `v2.11.4 h1:…`, exit 0
+#   alpine:3.20   →  printed the same, exit 0   ← the musl leg is the whole
+#                                                 evidence for the bare key
+#   fedora:40     →  printed the same, exit 0
+# No `containers[].setup` line is needed anywhere: a static binary asks nothing
+# of the image, and the smoke's only verbs (`version`, `build-info`, `adapt`)
+# shell out to nothing.
+#
+# Upstream ships no musl-specific build, and none is wanted — one static
+# artifact covers both userlands, which is exactly what the bare key states.
+#
+# ─── Asset anchoring — 147 assets per release, 6 of them ours ──────────────
+#
+# Every real artifact ships FIVE sidecars (`.pem`, `.sig`, `.sbom`,
+# `.sbom.pem`, `.sbom.sig`), and each release adds `buildable-artifact.tar.gz`,
+# `src.tar.gz` and `checksums.txt` with sidecars of their own. On top of that
+# EVERY linux arch publishes a `.deb` beside its `.tar.gz` for the identical
+# (os, arch) pair — so a pattern that does not pin the extension resolves TWO
+# candidates and fails with an ambiguous-match error. Every pattern below is
+# fully anchored `^caddy_<semver>_<slug>\.(tar\.gz|zip)$`, which excludes the
+# `.deb`, all sidecars (`…_linux_amd64.pem`, `…_linux_amd64.tar.gz.sig`,
+# `…_linux_amd64.sbom`), and the release-wide archives.
+#
+# Upstream's macOS slug is `mac`, not `darwin`.
+#
+# Resolution verified BOTH ways against EVERY in-range release — v2.9.0,
+# v2.9.1, v2.10.0, v2.10.1, v2.10.2, v2.11.1, v2.11.2, v2.11.3, v2.11.4 (there
+# is no stable v2.11.0): each of the six patterns matches EXACTLY one asset in
+# all nine, and every os/arch upstream ships that ocx can express is declared.
+# A pattern matching zero is SILENTLY SKIPPED, not an error — it would yield a
+# green run with a missing platform. Asset names were also checked to agree
+# with their own tag (all 147/129 names carry the tag's own version; no
+# release republishes a previous version's binaries).
+#
+# NOT declared, deliberately:
+#   • freebsd/*                     — ocx's OperatingSystem enum has no freebsd.
+#   • linux armv5/armv6/armv7,      — ocx's Architecture enum is amd64 + arm64
+#     ppc64le, riscv64, s390x         only; these are upstream assets, not
+#     windows armv5/armv6/armv7       declarable platforms. (The windows arm32
+#                                     legs also vanish mid-range: present at
+#                                     v2.9.0–v2.10.2, gone by v2.11.1.)
+#
+# Staged rollout (Phase 10): linux first, darwin second, windows third. The
+# darwin/windows keys are pre-written and COMMENTED in BOTH `assets:` and
+# `platforms:` — an unmatched platform self-skips per version but still boots
+# its runner and greens having tested nothing, so staging `assets:` alone does
+# not save the minutes.
+assets:
+  linux/amd64:
+    - "^caddy_\\d+\\.\\d+\\.\\d+_linux_amd64\\.tar\\.gz$"
+  linux/arm64:
+    - "^caddy_\\d+\\.\\d+\\.\\d+_linux_arm64\\.tar\\.gz$"
+  # darwin/amd64:
+  #   - "^caddy_\\d+\\.\\d+\\.\\d+_mac_amd64\\.tar\\.gz$"
+  # darwin/arm64:
+  #   - "^caddy_\\d+\\.\\d+\\.\\d+_mac_arm64\\.tar\\.gz$"
+  # windows/amd64:
+  #   - "^caddy_\\d+\\.\\d+\\.\\d+_windows_amd64\\.zip$"
+  # windows/arm64:
+  #   - "^caddy_\\d+\\.\\d+\\.\\d+_windows_arm64\\.zip$"
+
+asset_type:
+  # FLAT on all six platforms, and stable across the whole range — measured,
+  # not assumed:
+  #   $ tar tvf caddy_2.11.4_linux_amd64.tar.gz   →  LICENSE  README.md  caddy
+  #   $ tar tvf caddy_2.11.4_mac_arm64.tar.gz     →  LICENSE  README.md  caddy
+  #   $ unzip -l caddy_2.11.4_windows_arm64.zip   →  LICENSE  README.md  caddy.exe
+  #   $ tar tvf caddy_2.9.0_linux_amd64.tar.gz    →  LICENSE  README.md  caddy
+  # Every entry sits at depth 1; there is NO wrapper directory. So
+  # `strip_components: 0`, the executable lands AT the content root, and
+  # metadata.json's PATH is a bare ${installPath} (hence `bin_scan: off` in
+  # ../mirror-base.yml). `strip_components: 1` here would not merely lose the
+  # wrapper — with every entry already at depth 1 there is nothing to hoist, so
+  # it produces a completely EMPTY bundle while `prepare` still exits 0.
+  # The layout is identical on all six platforms, so one metadata.json serves
+  # them all and no per-platform override is needed; the `.exe` suffix lives
+  # only in the smoke test's platform branch, never in the `binaries` claim
+  # (which is bare by rule).
+  type: archive
+  strip_components: 0
+
+metadata:
+  default: metadata.json
+
+catalog:
+  logo: logo.svg
+
+versions:
+  # 2.9.0 is the honest floor for this matrix: all six declared platforms carry
+  # exactly one asset at every release from 2.9.0 up, and the archive layout is
+  # unchanged across the whole span.
+  min: "2.9.0"
+  new_per_run: 10
+  poll_interval: "1 */6 * * *"
+
+tests:
+  # `script:` resolves from the REPOSITORY ROOT — unlike `metadata.default` and
+  # `catalog.logo` above, which resolve against this spec's own directory.
+  - name: smoke
+    script: caddy/tests/smoke.star
+
+# ─── Platform matrix ────────────────────────────────────────────────────────
+#
+# Deliberately NOT inherited from ../mirror-base.yml — the container legs are
+# downstream of the libc measurement recorded above, so they belong beside it.
+# Nothing here restates a base block, so the shallow-merge trap cannot fire.
+platforms:
+  linux/amd64:
+    runner: ubuntu-latest
+    containers:
+      # ubuntu + alpine + fedora is the required set for a BARE key: the
+      # alpine leg is the only thing that turns "requires no libc" from an
+      # assertion into evidence. glibc twice, musl once.
+      - { image: "ubuntu:24.04", shell: bash }
+      - { image: "alpine:3.20",  shell: sh }
+      - { image: "fedora:40",    shell: bash }
+  linux/arm64:
+    # arm64 container legs run natively — no qemu — so the runner arch must
+    # match the platform or the renderer reds the leg up front.
+    runner: ubuntu-24.04-arm
+    containers:
+      - { image: "ubuntu:24.04", shell: bash }
+      - { image: "alpine:3.20",  shell: sh }
+      - { image: "fedora:40",    shell: bash }
+  # darwin/amd64:
+  #   # Intel slice tested on the arm64 macos-14 runner via Rosetta 2 —
+  #   # GitHub's native macos-13 Intel pool is exhausted and deadlocks push.
+  #   runner: macos-14
+  #   prefix: ["arch", "-x86_64"]
+  # darwin/arm64:
+  #   runner: macos-14
+  #   shell: bash
+  # windows/amd64:
+  #   runner: windows-latest
+  #   shell: pwsh
+  # windows/arm64:
+  #   # Native arm64 Windows runner — the amd64 pool cannot execute an ARM64 PE.
+  #   runner: windows-11-arm
+  #   shell: pwsh
+  # No `containers:` on darwin or windows — those runners have no Linux
+  # container engine, and the key is rejected at spec load.
+
+annotations:
+  # From the Phase 1.5 license gate:
+  #   $ gh api repos/caddyserver/caddy/license --jq '.license.spdx_id'
+  #   Apache-2.0
+  org.opencontainers.image.licenses: "Apache-2.0"
+
+announce:
+  # Spelled out, not derived from target.repository — the logical name and the
+  # physical path are related by convention only.
+  package: caddyserver/caddy
+  fork: ocx-contrib/index

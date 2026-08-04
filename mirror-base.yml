@@ -1,0 +1,50 @@
+# Shared base for every spec in this repository (caddyserver).
+#
+# NOT a spec: it has no name/target/source and is never loaded on its own.
+# Everything a package owns — name, target, source, assets, asset_type,
+# metadata, catalog, tests, versions, platforms, announce, annotations — stays
+# in that package's own mirror.yml.
+#
+# ⚠️ `extends:` is a SHALLOW merge of top-level keys. A spec that sets a key
+# below replaces that block OUTRIGHT — there is no per-key merge. `platforms:`
+# is where this bites hardest: it carries BOTH the runner matrix and the
+# container legs, so a child that restates it to tweak one runner silently
+# drops every `containers:` entry. Nothing reds — the legs simply stop
+# existing, and every os.features claim in that spec goes back to being merely
+# asserted. That trap is avoided here by construction: `platforms:` is NOT in
+# this base at all. The container matrix is downstream of a per-package libc
+# MEASUREMENT (caddy's is recorded above `assets:` in caddy/mirror.yml), so a
+# second package here would need its own matrix anyway and inheriting one would
+# be the wrong default. Same reasoning as mirror-kitware.
+
+skip_prereleases: true
+cascade: true
+
+# The fleet rule. A cascade tag (`latest`, `X`, `X.Y`) re-points on every
+# re-publish; without a build segment the new manifest reuses the bare version
+# tag and orphans the prior digest for registry GC, breaking any `@sha256:` pin
+# in a consumer's ocx.lock. caddy versions as bare semver (2.11.4) with no
+# `+build` segment, so the `none` exception (upstream versions that already
+# carry `+YYYYMMDD`, where `date` empties the mirror because normalize_version
+# refuses to double-stamp) does not apply here.
+build_timestamp: date
+
+verify:
+  github_asset_digest: true
+
+# `off`, and it cannot be otherwise for caddy. The scan only looks BELOW an
+# interface PATH entry of the form ${installPath}/<dir>. Upstream's archive is
+# FLAT — `LICENSE`, `README.md` and `caddy` (`caddy.exe` on Windows) all sit at
+# depth 1 with no wrapper directory — so with `strip_components: 0` the
+# executable IS at the content root and PATH is a bare ${installPath}. `auto`
+# or `verify` is rejected at spec load with exit 65 ("bin_scan is enabled but …
+# declares no interface-visible ${installPath}/<dir> PATH entry"). `off` with a
+# hand-listed `binaries` in metadata.json is the blessed shape for a flat
+# archive — and the hand list is load-bearing beyond documentation:
+# `prepare` chmods only DECLARED binaries to 0755.
+bin_scan: off
+
+notify:
+  discord:
+    webhook_secret: OCX_MIRROR_DISCORD_HOOK
+    user_id: "227748867204972545"  # pinged in-message on failures
